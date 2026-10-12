@@ -366,6 +366,11 @@
     let pausado = false;
     let vozes = [];
     let pedacos = [];      // texto dividido em frases para leitura encadeada
+    let inicioRelogio = 0;  // quando o pedaço atual começou a ser falado
+    let marcaRelogio = 0;   // instante da última posição conhecida
+    let marcaIndice = 0;     // posição conhecida nesse instante
+    let cpsCalibrado = null; // caracteres por segundo (medido quando o aparelho informa)
+    const TAMANHO_PEDACO = 150; // tamanho máximo de cada pedaço (caracteres)
 
     // estado do indicador: 'pronto', 'lendo' ou 'pausado'
     function definirEstado(nome) {
@@ -454,18 +459,42 @@
       speechSynthesis.cancel();
     }
 
-    // divide o texto em frases (pedaços) para leitura encadeada.
-    // Frases curtas evitam o bug do Chrome com leituras longas e dão
-    // ponto de retomada garantido no celular, onde não existem
-    // eventos de palavra (onboundary).
+    // divide o texto em pedaços pequenos: frases; frases longas são
+    // cortadas em vírgulas ou espaços. Pedaços curtos garantem um
+    // ponto de retomada próximo, mesmo sem eventos de palavra no celular.
     function dividirTexto(texto) {
-      const partes = [];
+      const pedacos = [];
       const re = /[^.!?\n…]+[.!?…]*\s*/g;
       let m;
       while ((m = re.exec(texto)) !== null) {
-        if (m[0].length > 0) partes.push({ inicio: m.index, texto: m[0] });
+        if (m[0].length === 0) continue;
+        const frase = m[0];
+        if (frase.length <= TAMANHO_PEDACO) {
+          pedacos.push({ inicio: m.index, texto: frase });
+          continue;
+        }
+        // frase longa: corta em vírgulas (ou espaços) dentro do limite
+        let pos = 0;
+        while (pos < frase.length) {
+          const limite = Math.min(pos + TAMANHO_PEDACO, frase.length);
+          let corte;
+          if (limite >= frase.length) {
+            corte = frase.length;
+          } else {
+            const trecho = frase.slice(pos, limite);
+            const virg = trecho.lastIndexOf(',');
+            corte = virg > 30 ? pos + virg + 1 : -1;
+            if (corte === -1) {
+              const esp = trecho.lastIndexOf(' ');
+              corte = esp > 30 ? pos + esp + 1 : limite;
+            }
+          }
+          if (corte <= pos) corte = pos + 1; // segurança contra loop infinito
+          pedacos.push({ inicio: m.index + pos, texto: frase.slice(pos, corte) });
+          pos = corte;
+        }
       }
-      return partes;
+      return pedacos;
     }
 
     // fala um pedaço (frase) e, ao terminar, encadeia o próximo
@@ -487,9 +516,21 @@
         if (voz) utter.voice = voz;
       }
 
-      // posição exata de cada palavra (quando o aparelho informa;
-      // no celular, o mínimo garantido é o começo da frase atual)
-      utter.onboundary = (e) => { ultimoIndice = base + e.charIndex; };
+      // relógio e calibração: permitem estimar a posição exata
+      // da pausa mesmo em aparelhos sem eventos de palavra
+      utter.onstart = () => {
+        inicioRelogio = performance.now();
+        marcaRelogio = inicioRelogio;
+        marcaIndice = base;
+      };
+      utter.onboundary = (e) => {
+        ultimoIndice = base + e.charIndex;
+        marcaRelogio = performance.now();
+        marcaIndice = ultimoIndice;
+        // calibra a velocidade real de fala (caracteres por segundo)
+        const s = (marcaRelogio - inicioRelogio) / 1000;
+        if (s > 0.3 && e.charIndex > 0) cpsCalibrado = e.charIndex / s;
+      };
       utter.onend = () => falarPedaco(i + 1);
       utter.onerror = (e) => {
         // 'interrupted'/'canceled' acontecem ao pausar/parar — é normal
@@ -502,6 +543,10 @@
 
       utterAtual = utter;
       ultimoIndice = base;
+      // marca de tempo inicial (caso o onstart não dispare no aparelho)
+      inicioRelogio = performance.now();
+      marcaRelogio = inicioRelogio;
+      marcaIndice = base;
       speechSynthesis.speak(utter);
     }
 
@@ -549,15 +594,33 @@
     btnPausar.addEventListener('click', () => {
       if (!pausado) {
         // pausa "manual": guardamos a posição e paramos o motor.
-        // (No celular o motor de voz não sabe congelar de verdade —
-        //  quem guarda o ponto exato pra retomar somos nós.)
         limparAnterior();
+
+        // aparelhos sem eventos de palavra (celular): estima o ponto
+        // pelo tempo que ficou falando e avança o marcador até lá
+        const s = (performance.now() - marcaRelogio) / 1000;
+        if (s > 0.4) {
+          const cps = cpsCalibrado || 14 * Number(velocidade.value);
+          let est = marcaIndice + Math.round(s * cps);
+          // não avança demais: deixa margem no fim do pedaço atual
+          const j = pedacos.findIndex((p) => marcaIndice < p.inicio + p.texto.length);
+          if (j !== -1) {
+            const limite = pedacos[j].inicio + Math.max(0, pedacos[j].texto.length - 12);
+            if (est > limite) est = limite;
+          }
+          // recua até o começo de uma palavra (nunca retoma no meio)
+          const t = entrada.value.trim();
+          let i = Math.min(est, t.length - 1);
+          while (i > marcaIndice && t[i - 1] !== ' ' && t[i - 1] !== '\n') i--;
+          if (i > marcaIndice) ultimoIndice = i;
+        }
+
         pausado = true;
         btnPausar.textContent = 'Retomar';
         definirEstado('pausado');
         status.textContent = 'Pausado';
       } else {
-        // retoma: continua da última palavra guardada
+        // retoma: continua do ponto guardado
         pausado = false;
         btnPausar.textContent = 'Pausar';
         iniciarLeitura(ultimoIndice);
@@ -575,6 +638,7 @@
     // velocidade: aplica na hora, retomando da última palavra reconhecida
     velocidade.addEventListener('input', () => {
       valorVelocidade.textContent = Number(velocidade.value).toFixed(1) + '×';
+      cpsCalibrado = null; // a calibração antiga não vale na nova velocidade
       if (falando && !pausado) {
         iniciarLeitura(ultimoIndice);
       }
