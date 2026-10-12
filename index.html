@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leitor de texto</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #f7f7f5;        /* fundo geral, quase branco */
+      --card: #ffffff;      /* superfície do app */
+      --suave: #fafaf8;     /* campos e chips */
+      --linha: #e6e6e2;     /* bordas */
+      --ink: #111310;       /* texto principal (quase preto) */
+      --muted: #6e7178;     /* texto secundário */
+      --vivo: #10b981;      /* verde "ao vivo" — único acento */
+      --atencao: #f59e0b;   /* âmbar do estado pausado */
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Inter", system-ui, sans-serif;
+      /* manchas suaves de cor atrás do vidro */
+      background:
+        radial-gradient(600px 400px at 12% 8%, rgba(16, 185, 129, 0.18), transparent 65%),
+        radial-gradient(700px 520px at 92% 18%, rgba(99, 102, 241, 0.14), transparent 62%),
+        radial-gradient(520px 420px at 78% 96%, rgba(245, 158, 11, 0.10), transparent 60%),
+        var(--bg);
+      background-attachment: fixed;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 48px 16px;
+      color: var(--ink);
+    }
+
+    :focus-visible { outline: 2px solid var(--vivo); outline-offset: 2px; }
+
+    /* ——— superfície do app ——— */
+    .app {
+      width: 100%;
+      max-width: 680px;
+      /* vidro fosco */
+      background: rgba(255, 255, 255, 0.6);
+      -webkit-backdrop-filter: blur(24px) saturate(1.5);
+      backdrop-filter: blur(24px) saturate(1.5);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow: 0 1px 2px rgba(17, 19, 16, 0.04), 0 16px 40px rgba(17, 19, 16, 0.06);
+    }
+
+    /* ——— topo: nome + estado ——— */
+    .topo {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .marca {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: "Space Grotesk", sans-serif;
+      font-weight: 600;
+      font-size: 17px;
+    }
+
+    .estado {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.55);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #c6c8cc;
+      flex: none;
+      transition: background 0.2s;
+    }
+    body[data-estado="lendo"] .dot {
+      background: var(--vivo);
+      animation: pulsar 1.6s ease-in-out infinite;
+    }
+    body[data-estado="pausado"] .dot { background: var(--atencao); }
+    @keyframes pulsar { 50% { opacity: 0.35; } }
+
+    /* ——— texto ——— */
+    textarea {
+      width: 100%;
+      min-height: 300px;
+      background: rgba(255, 255, 255, 0.55);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      border-radius: 14px;
+      padding: 16px;
+      font-family: "Inter", sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--ink);
+      resize: vertical;
+    }
+    textarea::placeholder { color: #a3a6ac; }
+
+    /* ——— controles ——— */
+    .controles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      align-items: center;
+      margin-top: 22px;
+    }
+
+    /* botão principal: play circular */
+    .play {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      border: none;
+      background: var(--ink);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      flex: none;
+      box-shadow: 0 8px 20px rgba(17, 19, 16, 0.18);
+      transition: transform 0.15s ease, opacity 0.15s;
+    }
+    .play:hover { transform: scale(1.05); }
+    .play:active { transform: scale(0.95); }
+
+    .ajustes {
+      flex: 1;
+      min-width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .linha-controle {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    label {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* slider fino e limpo */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      flex: 1;
+      min-width: 120px;
+      height: 20px;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 4px;
+      border-radius: 999px;
+      background: var(--linha);
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--ink);
+      margin-top: -6px;
+      box-shadow: 0 1px 3px rgba(17, 19, 16, 0.25);
+    }
+    input[type="range"]::-moz-range-track {
+      height: 4px;
+      border-radius: 999px;
+      background: var(--linha);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border: none;
+      border-radius: 50%;
+      background: var(--ink);
+      box-shadow: 0 1px 3px rgba(17, 19, 16, 0.25);
+    }
+
+    .chip {
+      font-family: "Space Grotesk", sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      min-width: 46px;
+      text-align: center;
+      padding: 5px 8px;
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      border-radius: 8px;
+    }
+
+    select {
+      font-family: "Inter", sans-serif;
+      font-size: 13.5px;
+      padding: 8px 12px;
+      border: 1px solid var(--linha);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.55);
+      color: var(--ink);
+      cursor: pointer;
+      min-width: 170px;
+    }
+
+    /* botões secundários em pílula */
+    .pill {
+      font-family: "Space Grotesk", sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 9px 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      background: rgba(255, 255, 255, 0.5);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      color: var(--ink);
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s, opacity 0.15s;
+    }
+    .pill:hover:not(:disabled) { background: rgba(255, 255, 255, 0.8); }
+    .pill:active:not(:disabled) { transform: scale(0.97); }
+    .pill:disabled { opacity: 0.35; cursor: not-allowed; }
+    .pill.perigo { color: #b42318; }
+
+    .rodape {
+      margin-top: 22px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.65);
+      text-align: center;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    /* navegador sem suporte a vidro fosco: superfícies sólidas */
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .app { background: #ffffff; }
+      .estado, textarea, .chip, select, .pill { background: #fafaf8; }
+    }
+
+    @media (max-width: 560px) {
+      body { padding: 24px 12px; }
+      .app { padding: 20px; }
+      .ajustes { min-width: 100%; }
+      .estado { display: none; } /* estado volta como texto simples no mobile */
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .dot { animation: none !important; }
+      .play, .pill { transition: none; }
+    }
+  </style>
+</head>
+<body data-estado="pronto">
+  <main class="app">
+    <header class="topo">
+      <div class="marca">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 9v6M8 5v14M12 3v18M16 7v10M20 10v4"/>
+        </svg>
+        Leitor de texto
+      </div>
+      <div class="estado" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="status">Pronto</span>
+      </div>
+    </header>
+
+    <textarea id="entrada" placeholder="Escreva ou cole aqui o texto que quer ouvir..."></textarea>
+
+    <div class="controles">
+      <button class="play" id="btnLer" aria-label="Ler o texto">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M8 5.5v13l11-6.5z"/>
+        </svg>
+      </button>
+
+      <div class="ajustes">
+        <div class="linha-controle">
+          <label for="velocidade">Velocidade</label>
+          <input type="range" id="velocidade" min="0.5" max="5" step="0.1" value="1">
+          <span class="chip" id="valorVelocidade">1.0×</span>
+        </div>
+
+        <div class="linha-controle">
+          <label for="voz">Voz</label>
+          <select id="voz"></select>
+          <span style="flex: 1"></span>
+          <button class="pill" id="btnPausar" disabled>Pausar</button>
+          <button class="pill perigo" id="btnParar" disabled>Parar</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="rodape">Desenvolvido por Júlio César</footer>
+  </main>
+
+  <script>
+    const entrada = document.getElementById('entrada');
+    const btnLer = document.getElementById('btnLer');
+    const btnPausar = document.getElementById('btnPausar');
+    const btnParar = document.getElementById('btnParar');
+    const velocidade = document.getElementById('velocidade');
+    const valorVelocidade = document.getElementById('valorVelocidade');
+    const status = document.getElementById('status');
+    const seletorVoz = document.getElementById('voz');
+
+    let utterAtual = null; // leitura em andamento
+    let ultimoIndice = 0;  // posição (caractere) da última palavra falada
+    let falando = false;
+    let pausado = false;
+    let vozes = [];
+
+    // estado do indicador: 'pronto', 'lendo' ou 'pausado'
+    function definirEstado(nome) {
+      document.body.dataset.estado = nome;
+    }
+
+    // Rótulo da voz: nome limpo + provedor, ex.: "Daniel - Microsoft"
+    function rotuloVoz(v) {
+      const n = v.name;
+      let nome;
+      if (/daniel/i.test(n)) nome = 'Daniel';
+      else if (/maria/i.test(n)) nome = 'Maria';
+      else {
+        nome = n.split(' - ')[0]
+          .replace(/^(microsoft|google)\s+/i, '')
+          .replace(/\s*online(\s*\(.*?\))?/i, '')
+          .replace(/\s*\(.*?\)/g, '')
+          .trim() || n;
+      }
+      let provedor = '';
+      if (/microsoft/i.test(n)) provedor = 'Microsoft';
+      else if (/google/i.test(n)) provedor = 'Google';
+      else if (/apple/i.test(n)) provedor = 'Apple';
+      return provedor ? `${nome} - ${provedor}` : nome;
+    }
+
+    // Lista as vozes: Daniel e Maria no PC;
+    // em outros aparelhos, as vozes de português disponíveis
+    function carregarVozes() {
+      vozes = speechSynthesis.getVoices();
+      const escolhida = seletorVoz.value; // lembra da escolha anterior
+      seletorVoz.innerHTML = '';
+
+      // preferência: Daniel e Maria (vozes do Windows)
+      let lista = vozes.filter((v) => /daniel|maria/i.test(v.name));
+
+      // fallback 1: qualquer voz de português do aparelho
+      if (lista.length === 0) {
+        lista = vozes.filter((v) => v.lang.toLowerCase().startsWith('pt'));
+      }
+      // fallback 2: qualquer voz disponível
+      if (lista.length === 0) {
+        lista = vozes;
+      }
+
+      if (lista.length === 0) {
+        const aviso = document.createElement('option');
+        aviso.value = '';
+        aviso.textContent = 'Nenhuma voz encontrada';
+        aviso.disabled = true;
+        seletorVoz.appendChild(aviso);
+        return;
+      }
+
+      lista.forEach((v) => {
+        const op = document.createElement('option');
+        op.value = v.name;
+        op.textContent = rotuloVoz(v);
+        seletorVoz.appendChild(op);
+      });
+
+      // restaura a voz selecionada, se ainda existir
+      if ([...seletorVoz.options].some((o) => o.value === escolhida)) {
+        seletorVoz.value = escolhida;
+      }
+    }
+    speechSynthesis.onvoiceschanged = carregarVozes; // a lista chega aos poucos
+    carregarVozes();
+
+    function atualizarInterface(textoStatus) {
+      status.textContent = textoStatus;
+      btnPausar.disabled = !falando;
+      btnParar.disabled = !falando;
+      if (!falando) {
+        pausado = false;
+        btnPausar.textContent = 'Pausar';
+      }
+    }
+
+    function limparAnterior() {
+      if (utterAtual) {
+        utterAtual.onend = null;
+        utterAtual.onerror = null;
+        utterAtual.onboundary = null;
+      }
+      speechSynthesis.cancel();
+    }
+
+    // inicia (ou reinicia) a leitura a partir de um ponto do texto
+    function iniciarLeitura(inicio = 0) {
+      limparAnterior();
+
+      const texto = entrada.value.trim();
+      const utter = new SpeechSynthesisUtterance(texto.slice(inicio));
+      utter.lang = 'pt-BR';
+      utter.rate = Number(velocidade.value);
+      if (seletorVoz.value) {
+        const voz = vozes.find((v) => v.name === seletorVoz.value);
+        if (voz) utter.voice = voz;
+      }
+
+      // a cada palavra falada, guardamos a posição no texto
+      utter.onboundary = (e) => { ultimoIndice = inicio + e.charIndex; };
+      utter.onend = () => {
+        falando = false;
+        ultimoIndice = 0;
+        definirEstado('pronto');
+        atualizarInterface('Concluída');
+      };
+      utter.onerror = () => {
+        falando = false;
+        ultimoIndice = 0;
+        definirEstado('pronto');
+        atualizarInterface('Erro na leitura');
+      };
+
+      utterAtual = utter;
+      speechSynthesis.speak(utter);
+      falando = true;
+      ultimoIndice = inicio;
+      definirEstado('lendo');
+      atualizarInterface('Lendo');
+    }
+
+    btnLer.addEventListener('click', () => {
+      if (!entrada.value.trim()) {
+        status.textContent = 'Escreva algum texto primeiro';
+        return;
+      }
+      ultimoIndice = 0;
+      iniciarLeitura(0);
+    });
+
+    btnPausar.addEventListener('click', () => {
+      if (!pausado) {
+        speechSynthesis.pause(); // congela no ponto exato
+        pausado = true;
+        btnPausar.textContent = 'Retomar';
+        definirEstado('pausado');
+        status.textContent = 'Pausado';
+      } else {
+        speechSynthesis.resume(); // continua de onde parou
+        pausado = false;
+        btnPausar.textContent = 'Pausar';
+        definirEstado('lendo');
+        status.textContent = 'Lendo';
+      }
+    });
+
+    btnParar.addEventListener('click', () => {
+      limparAnterior();
+      falando = false;
+      ultimoIndice = 0;
+      definirEstado('pronto');
+      atualizarInterface('Pronto');
+    });
+
+    // velocidade: aplica na hora, retomando da última palavra reconhecida
+    velocidade.addEventListener('input', () => {
+      valorVelocidade.textContent = Number(velocidade.value).toFixed(1) + '×';
+      if (falando) {
+        const estavaPausado = pausado;
+        iniciarLeitura(ultimoIndice);
+        if (estavaPausado) {
+          pausado = true;
+          btnPausar.textContent = 'Retomar';
+          definirEstado('pausado');
+          status.textContent = 'Pausado';
+          setTimeout(() => speechSynthesis.pause(), 60);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
