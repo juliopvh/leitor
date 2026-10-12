@@ -365,6 +365,7 @@
     let falando = false;
     let pausado = false;
     let vozes = [];
+    let pedacos = [];      // texto dividido em frases para leitura encadeada
 
     // estado do indicador: 'pronto', 'lendo' ou 'pausado'
     function definirEstado(nome) {
@@ -453,15 +454,32 @@
       speechSynthesis.cancel();
     }
 
-    // monta a fala e dispara
-    function falar(inicio = 0) {
-      const texto = entrada.value.trim();
-      if (!texto) {
-        status.textContent = 'Cole ou escreva algum texto primeiro';
+    // divide o texto em frases (pedaços) para leitura encadeada.
+    // Frases curtas evitam o bug do Chrome com leituras longas e dão
+    // ponto de retomada garantido no celular, onde não existem
+    // eventos de palavra (onboundary).
+    function dividirTexto(texto) {
+      const partes = [];
+      const re = /[^.!?\n…]+[.!?…]*\s*/g;
+      let m;
+      while ((m = re.exec(texto)) !== null) {
+        if (m[0].length > 0) partes.push({ inicio: m.index, texto: m[0] });
+      }
+      return partes;
+    }
+
+    // fala um pedaço (frase) e, ao terminar, encadeia o próximo
+    function falarPedaco(i, aPartirDe = 0) {
+      if (i >= pedacos.length) {
+        falando = false;
+        ultimoIndice = 0;
+        definirEstado('pronto');
+        atualizarInterface('Concluída');
         return;
       }
 
-      const utter = new SpeechSynthesisUtterance(texto.slice(inicio));
+      const base = pedacos[i].inicio + aPartirDe;
+      const utter = new SpeechSynthesisUtterance(pedacos[i].texto.slice(aPartirDe));
       utter.lang = 'pt-BR';
       utter.rate = Number(velocidade.value);
       if (seletorVoz.value) {
@@ -469,40 +487,57 @@
         if (voz) utter.voice = voz;
       }
 
-      // a cada palavra falada, guardamos a posição no texto
-      utter.onboundary = (e) => { ultimoIndice = inicio + e.charIndex; };
-      utter.onend = () => {
-        falando = false;
-        ultimoIndice = 0;
-        definirEstado('pronto');
-        atualizarInterface('Concluída');
-      };
+      // posição exata de cada palavra (quando o aparelho informa;
+      // no celular, o mínimo garantido é o começo da frase atual)
+      utter.onboundary = (e) => { ultimoIndice = base + e.charIndex; };
+      utter.onend = () => falarPedaco(i + 1);
       utter.onerror = (e) => {
+        // 'interrupted'/'canceled' acontecem ao pausar/parar — é normal
+        if (e.error === 'interrupted' || e.error === 'canceled') return;
         falando = false;
         ultimoIndice = 0;
         definirEstado('pronto');
-        atualizarInterface('Erro: ' + (e.error || 'desconhecido'));
+        atualizarInterface('Erro: ' + e.error);
       };
 
       utterAtual = utter;
+      ultimoIndice = base;
       speechSynthesis.speak(utter);
-      falando = true;
-      ultimoIndice = inicio;
-      definirEstado('lendo');
-      atualizarInterface('Lendo');
     }
 
-    // inicia (ou reinicia) a leitura a partir de um ponto do texto.
-    // No celular, cancelar e falar na mesma hora faz o motor engasgar;
-    // se ele está ocupado, esperamos um instante entre um e outro.
+    // inicia (ou retoma) a leitura a partir de um ponto do texto
     function iniciarLeitura(inicio = 0) {
+      const texto = entrada.value.trim();
+      if (!texto) {
+        status.textContent = 'Cole ou escreva algum texto primeiro';
+        return;
+      }
+      pedacos = dividirTexto(texto);
+      if (pedacos.length === 0) {
+        status.textContent = 'Cole ou escreva algum texto primeiro';
+        return;
+      }
+
+      // em qual frase está o ponto de retomada?
+      let i = pedacos.findIndex((p) => inicio < p.inicio + p.texto.length);
+      if (i === -1) i = pedacos.length - 1;
+      const aPartirDe = Math.max(0, Math.min(inicio - pedacos[i].inicio, pedacos[i].texto.length - 1));
+
+      const partir = () => {
+        falando = true;
+        definirEstado('lendo');
+        atualizarInterface('Lendo');
+        falarPedaco(i, aPartirDe);
+      };
+
+      // motor ocupado? cancela e espera um instante (bug do Chrome mobile)
       const ocupado = speechSynthesis.speaking || speechSynthesis.pending || speechSynthesis.paused;
       if (ocupado) {
         limparAnterior();
         falando = false;
-        setTimeout(() => falar(inicio), 100);
+        setTimeout(partir, 100);
       } else {
-        falar(inicio); // primeira leitura: responde no próprio toque
+        partir(); // primeira leitura: responde no próprio toque
       }
     }
 
