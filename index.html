@@ -404,21 +404,33 @@
       const escolhida = seletorVoz.value; // lembra da escolha anterior
       seletorVoz.innerHTML = '';
 
+      // detecta a voz de português de Portugal pelo nome OU pelo idioma
+      const ehPortugal = (v) =>
+        /portugal/i.test(v.name) ||
+        v.lang.toLowerCase().replace('_', '-').startsWith('pt-pt');
+
       // preferência: Daniel e Maria (vozes do Windows)
       let lista = vozes.filter((v) => /daniel|maria/i.test(v.name));
 
-      // fallback 1: voz de português do Brasil
+      // fallback 1: voz de português do Brasil (idioma ou nome)
       if (lista.length === 0) {
-        lista = vozes.filter((v) => v.lang.toLowerCase().startsWith('pt-br'));
+        lista = vozes.filter((v) => {
+          const l = v.lang.toLowerCase().replace('_', '-');
+          return l.startsWith('pt-br') || (l.startsWith('pt') && /brasil/i.test(v.name));
+        });
       }
       // fallback 2: português em geral, menos o de Portugal
       if (lista.length === 0) {
         lista = vozes.filter((v) => {
-          const l = v.lang.toLowerCase();
-          return l.startsWith('pt') && !l.startsWith('pt-pt');
+          const l = v.lang.toLowerCase().replace('_', '-');
+          return l.startsWith('pt') && !ehPortugal(v);
         });
       }
-      // fallback 3: qualquer voz disponível
+      // fallback 3: qualquer voz, menos a de Portugal
+      if (lista.length === 0) {
+        lista = vozes.filter((v) => !ehPortugal(v));
+      }
+      // último recurso: qualquer voz disponível
       if (lista.length === 0) {
         lista = vozes;
       }
