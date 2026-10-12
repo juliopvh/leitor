@@ -147,6 +147,7 @@
       cursor: pointer;
       flex: none;
       box-shadow: 0 8px 20px rgba(17, 19, 16, 0.18);
+      touch-action: manipulation; /* toque sem atraso de zoom no celular */
       transition: transform 0.15s ease, opacity 0.15s;
     }
     .play:hover { transform: scale(1.05); }
@@ -180,10 +181,11 @@
       -webkit-appearance: none;
       appearance: none;
       flex: 1;
-      min-width: 120px;
-      height: 20px;
+      min-width: 130px;
+      height: 36px;        /* área de toque generosa pro dedo */
       background: transparent;
       cursor: pointer;
+      touch-action: none;  /* o arraste não vira rolagem da página */
     }
     input[type="range"]::-webkit-slider-runnable-track {
       height: 4px;
@@ -192,11 +194,11 @@
     }
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
       background: var(--ink);
-      margin-top: -6px;
+      margin-top: -8px;
       box-shadow: 0 1px 3px rgba(17, 19, 16, 0.25);
     }
     input[type="range"]::-moz-range-track {
@@ -205,8 +207,8 @@
       background: var(--linha);
     }
     input[type="range"]::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
+      width: 20px;
+      height: 20px;
       border: none;
       border-radius: 50%;
       background: var(--ink);
@@ -250,6 +252,7 @@
       backdrop-filter: blur(8px);
       color: var(--ink);
       cursor: pointer;
+      touch-action: manipulation;
       transition: background 0.15s, transform 0.1s, opacity 0.15s;
     }
     .pill:hover:not(:disabled) { background: rgba(255, 255, 255, 0.8); }
@@ -279,7 +282,15 @@
       body { padding: 24px 12px; }
       .app { padding: 20px; }
       .ajustes { min-width: 100%; }
-      .estado { display: none; } /* estado volta como texto simples no mobile */
+
+      /* no celular o efeito de vidro pesa no desempenho e
+         pode atrapalhar o toque: superfícies mais sólidas e leves */
+      .app { background: rgba(255, 255, 255, 0.9); }
+      .estado, textarea, .chip, select, .pill { background: rgba(255, 255, 255, 0.8); }
+      .app, .estado, textarea, .chip, select, .pill {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -341,6 +352,13 @@
     const valorVelocidade = document.getElementById('valorVelocidade');
     const status = document.getElementById('status');
     const seletorVoz = document.getElementById('voz');
+
+    // o texto colado fica salvo no aparelho — não se perde ao recarregar
+    const textoSalvo = localStorage.getItem('leitor-texto');
+    if (textoSalvo) entrada.value = textoSalvo;
+    entrada.addEventListener('input', () => {
+      localStorage.setItem('leitor-texto', entrada.value);
+    });
 
     let utterAtual = null; // leitura em andamento
     let ultimoIndice = 0;  // posição (caractere) da última palavra falada
@@ -435,11 +453,14 @@
       speechSynthesis.cancel();
     }
 
-    // inicia (ou reinicia) a leitura a partir de um ponto do texto
-    function iniciarLeitura(inicio = 0) {
-      limparAnterior();
-
+    // monta a fala e dispara
+    function falar(inicio = 0) {
       const texto = entrada.value.trim();
+      if (!texto) {
+        status.textContent = 'Cole ou escreva algum texto primeiro';
+        return;
+      }
+
       const utter = new SpeechSynthesisUtterance(texto.slice(inicio));
       utter.lang = 'pt-BR';
       utter.rate = Number(velocidade.value);
@@ -456,11 +477,11 @@
         definirEstado('pronto');
         atualizarInterface('Concluída');
       };
-      utter.onerror = () => {
+      utter.onerror = (e) => {
         falando = false;
         ultimoIndice = 0;
         definirEstado('pronto');
-        atualizarInterface('Erro na leitura');
+        atualizarInterface('Erro: ' + (e.error || 'desconhecido'));
       };
 
       utterAtual = utter;
@@ -471,11 +492,21 @@
       atualizarInterface('Lendo');
     }
 
-    btnLer.addEventListener('click', () => {
-      if (!entrada.value.trim()) {
-        status.textContent = 'Escreva algum texto primeiro';
-        return;
+    // inicia (ou reinicia) a leitura a partir de um ponto do texto.
+    // No celular, cancelar e falar na mesma hora faz o motor engasgar;
+    // se ele está ocupado, esperamos um instante entre um e outro.
+    function iniciarLeitura(inicio = 0) {
+      const ocupado = speechSynthesis.speaking || speechSynthesis.pending || speechSynthesis.paused;
+      if (ocupado) {
+        limparAnterior();
+        falando = false;
+        setTimeout(() => falar(inicio), 100);
+      } else {
+        falar(inicio); // primeira leitura: responde no próprio toque
       }
+    }
+
+    btnLer.addEventListener('click', () => {
       ultimoIndice = 0;
       iniciarLeitura(0);
     });
@@ -515,7 +546,7 @@
           btnPausar.textContent = 'Retomar';
           definirEstado('pausado');
           status.textContent = 'Pausado';
-          setTimeout(() => speechSynthesis.pause(), 60);
+          setTimeout(() => speechSynthesis.pause(), 160);
         }
       }
     });
