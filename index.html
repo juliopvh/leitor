@@ -407,11 +407,18 @@
       // preferência: Daniel e Maria (vozes do Windows)
       let lista = vozes.filter((v) => /daniel|maria/i.test(v.name));
 
-      // fallback 1: qualquer voz de português do aparelho
+      // fallback 1: voz de português do Brasil
       if (lista.length === 0) {
-        lista = vozes.filter((v) => v.lang.toLowerCase().startsWith('pt'));
+        lista = vozes.filter((v) => v.lang.toLowerCase().startsWith('pt-br'));
       }
-      // fallback 2: qualquer voz disponível
+      // fallback 2: português em geral, menos o de Portugal
+      if (lista.length === 0) {
+        lista = vozes.filter((v) => {
+          const l = v.lang.toLowerCase();
+          return l.startsWith('pt') && !l.startsWith('pt-pt');
+        });
+      }
+      // fallback 3: qualquer voz disponível
       if (lista.length === 0) {
         lista = vozes;
       }
