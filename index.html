@@ -513,17 +513,19 @@
 
     btnPausar.addEventListener('click', () => {
       if (!pausado) {
-        speechSynthesis.pause(); // congela no ponto exato
+        // pausa "manual": guardamos a posição e paramos o motor.
+        // (No celular o motor de voz não sabe congelar de verdade —
+        //  quem guarda o ponto exato pra retomar somos nós.)
+        limparAnterior();
         pausado = true;
         btnPausar.textContent = 'Retomar';
         definirEstado('pausado');
         status.textContent = 'Pausado';
       } else {
-        speechSynthesis.resume(); // continua de onde parou
+        // retoma: continua da última palavra guardada
         pausado = false;
         btnPausar.textContent = 'Pausar';
-        definirEstado('lendo');
-        status.textContent = 'Lendo';
+        iniciarLeitura(ultimoIndice);
       }
     });
 
@@ -538,17 +540,10 @@
     // velocidade: aplica na hora, retomando da última palavra reconhecida
     velocidade.addEventListener('input', () => {
       valorVelocidade.textContent = Number(velocidade.value).toFixed(1) + '×';
-      if (falando) {
-        const estavaPausado = pausado;
+      if (falando && !pausado) {
         iniciarLeitura(ultimoIndice);
-        if (estavaPausado) {
-          pausado = true;
-          btnPausar.textContent = 'Retomar';
-          definirEstado('pausado');
-          status.textContent = 'Pausado';
-          setTimeout(() => speechSynthesis.pause(), 160);
-        }
       }
+      // se estiver pausado, a nova velocidade vale na retomada
     });
   </script>
 </body>
